@@ -103,7 +103,14 @@ def main(
             time.sleep(0.05)
         
         if not canceled:
-            audio_path = job.result()
+            result = job.result()
+            if type(result) is tuple:
+                audio_path = result[0]
+                out_text = result[1]
+                print(f"Saving output text to the status")
+                Path(status_flag_path).write_text(out_text)
+            else:
+                audio_path = result
 
             print(f"Saving audio to {output_path}...")
             Path(audio_path).rename(output_path)

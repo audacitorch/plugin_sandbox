@@ -362,6 +362,12 @@ public:
             .getChildFile("output_" + randomString + ".wav");
     tempOutputFile.deleteFile();
 
+    // // a target output text file
+    // juce::File tempOutputTextFile =
+    //     juce::File::getSpecialLocation(juce::File::tempDirectory)
+    //         .getChildFile("output_" + randomString + ".txt");
+    // tempOutputTextFile.deleteFile();
+
     // a ctrls file
     juce::File tempCtrlsFile =
         juce::File::getSpecialLocation(juce::File::tempDirectory)
@@ -387,6 +393,7 @@ public:
         + " --ctrls_path " + tempCtrlsFile.getFullPathName().toStdString()
         + " --cancel_flag_path " + m_cancel_flag_file.getFullPathName().toStdString()
         + " --status_flag_path " + m_status_flag_file.getFullPathName().toStdString()
+        // + " --output_text_path " + tempOutputTextFile.getFullPathName().toStdString()
         + " >> " + tempLogFile.getFullPathName().toStdString()   // redirect stdout to the temp log file
         + " 2>&1"   // redirect stderr to the same file as stdout
     );

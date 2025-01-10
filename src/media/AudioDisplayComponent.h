@@ -1,7 +1,5 @@
 #pragma once
-
 #include <juce_audio_utils/juce_audio_utils.h>
-
 #include "MediaDisplayComponent.h"
 
 class AudioThumbnailWrapper : public Component
@@ -26,12 +24,13 @@ class AudioDisplayComponent : public MediaDisplayComponent
 {
 public:
     AudioDisplayComponent();
+    AudioDisplayComponent(String trackName);
     ~AudioDisplayComponent();
 
     static StringArray getSupportedExtensions();
     StringArray getInstanceExtensions() { return AudioDisplayComponent::getSupportedExtensions(); }
 
-    void repositionContent() override;
+    // void repositionContent() override;
 
     Component* getMediaComponent() { return &thumbnailComponent; }
 
@@ -41,6 +40,8 @@ public:
     double getTimeAtOrigin() override { return visibleRange.getStart(); }
 
     void addLabels(LabelList& labels) override;
+
+    void resized() override;
 
 private:
     void resetDisplay() override;

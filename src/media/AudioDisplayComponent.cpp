@@ -1,6 +1,11 @@
 #include "AudioDisplayComponent.h"
 
 AudioDisplayComponent::AudioDisplayComponent()
+    : AudioDisplayComponent("Audio Track")
+{
+}
+AudioDisplayComponent::AudioDisplayComponent(String trackName)
+    : MediaDisplayComponent(trackName)
 {
     thread.startThread(Thread::Priority::normal);
 
@@ -11,6 +16,8 @@ AudioDisplayComponent::AudioDisplayComponent()
 
     mediaHandlerInstructions =
         "Audio waveform.\nClick and drag to start playback from any point in the waveform\nVertical scroll to zoom in/out.\nHorizontal scroll to move the waveform.";
+
+    mediaComponent.addAndMakeVisible(thumbnailComponent);
 }
 
 AudioDisplayComponent::~AudioDisplayComponent()
@@ -35,10 +42,10 @@ StringArray AudioDisplayComponent::getSupportedExtensions()
     return extensions;
 }
 
-void AudioDisplayComponent::repositionContent()
-{
-    thumbnailComponent.setBounds(getContentBounds());
-}
+// void AudioDisplayComponent::repositionContent()
+// {
+//     // thumbnailComponent.setBounds(getContentBounds());
+// }
 
 void AudioDisplayComponent::loadMediaFile(const URL& filePath)
 {
@@ -135,6 +142,13 @@ void AudioDisplayComponent::addLabels(LabelList& labels)
             }
         }
     }
+}
+
+void AudioDisplayComponent::resized()
+{
+    MediaDisplayComponent::resized();
+    // Set thumbnailComponent to fill mediaComponent
+    thumbnailComponent.setBounds(mediaComponent.getLocalBounds());
 }
 
 void AudioDisplayComponent::resetDisplay()

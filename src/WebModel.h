@@ -24,7 +24,12 @@ public:
 
     bool ready() const override { return status2 == ModelStatus::LOADED; }
 
-    CtrlList& controls() { return m_ctrls; }
+    ComponentInfoList& getControls() { return controlsInfo; }
+    ComponentInfoList& getInputTracks() { return inputTracksInfo; }
+    ComponentInfoList& getOutputTracks() { return outputTracksInfo; }
+
+    // juce::Array<juce::var>& getInputComponents() {return inputComponents;}
+    // juce::Array<juce::var>& getOutputComponents() {return outputComponents;}
 
     OpResult load(const map<string, any>& params) override
     {
@@ -34,7 +39,7 @@ public:
         error.type = ErrorType::JsonParseError;
         OpResult result = OpResult::ok();
 
-        m_ctrls.clear();
+        // controlsInfo.clear();
         status2 = ModelStatus::LOADING;
 
         // get the name of the huggingface repo we're going to use
@@ -57,10 +62,12 @@ public:
 
         LogAndDBG(gradioClient.getSpaceInfo().toString());
 
-        juce::Array<juce::var> ctrlList;
+        juce::Array<juce::var> inputPyharpComponents;
+        juce::Array<juce::var> outputPyharpComponents;
+
         juce::DynamicObject cardDict;
         status2 = ModelStatus::GETTING_CONTROLS;
-        result = gradioClient.getControls(ctrlList, cardDict);
+        result = gradioClient.getControls(inputPyharpComponents, outputPyharpComponents, cardDict);
         if (result.failed())
         {
             status2 = ModelStatus::ERROR;
@@ -72,8 +79,8 @@ public:
         m_card.name = cardDict.getProperty("name").toString().toStdString();
         m_card.description = cardDict.getProperty("description").toString().toStdString();
         m_card.author = cardDict.getProperty("author").toString().toStdString();
-        m_card.midi_in = (bool) cardDict.getProperty("midi_in");
-        m_card.midi_out = (bool) cardDict.getProperty("midi_out");
+        // m_card.midi_in = (bool) cardDict.getProperty("midi_in");
+        // m_card.midi_out = (bool) cardDict.getProperty("midi_out");
 
         // tags is a list of str
         juce::Array<juce::var>* tags = cardDict.getProperty("tags").getArray();
@@ -90,14 +97,18 @@ public:
         }
 
         // clear the m_ctrls vector
-        m_ctrls.clear();
+        controlsInfo.clear();
+        inputTracksInfo.clear();
+        outputTracksInfo.clear();
 
-        // iterate through the list of controls
-        // and add them to the m_ctrls vector
-        for (int i = 0; i < ctrlList.size(); i++)
+        // iterate through the list of inputComponents
+        // inputComponents contain both the input controls i,e sliders, textboxes etc
+        // as well as the input media tracks (audio or midi)
+
+        for (int i = 0; i < inputPyharpComponents.size(); i++)
         {
-            juce::var ctrl = ctrlList.getReference(i);
-            if (! ctrl.isObject())
+            juce::var pyharpComponent = inputPyharpComponents.getReference(i);
+            if (! pyharpComponent.isObject())
             {
                 status2 = ModelStatus::ERROR;
                 error.devMessage = "Failed to load controls from JSON. ctrl is not an object.";
@@ -107,64 +118,122 @@ public:
             try
             {
                 // get the ctrl type
-                juce::String ctrl_type = ctrl["ctrl_type"].toString().toStdString();
+                juce::String type = pyharpComponent["type"].toString().toStdString();
 
                 // For the first two, we are abusing the term control.
                 // They are actually the main inputs to the model (audio or midi)
-                if (ctrl_type == "audio_in")
+                if (type == "audio_track")
                 {
-                    auto audio_in = std::make_shared<AudioInCtrl>();
-                    audio_in->label = ctrl["label"].toString().toStdString();
+                    // CB:TODO: NOT USED ANYWHERE
+                    // ControlAreaWidget.h ignores this when populating the GUI
+                    auto audio_in = std::make_shared<AudioTrackInfo>();
+                    audio_in->label = pyharpComponent["label"].toString().toStdString();
 
-                    m_ctrls.push_back({ audio_in->id, audio_in });
+                    inputTracksInfo.push_back({ audio_in->id, audio_in });
                     LogAndDBG("Audio In: " + audio_in->label + " added");
                 }
-                else if (ctrl_type == "midi_in")
+                else if (type == "midi_track")
                 {
-                    auto midi_in = std::make_shared<MidiInCtrl>();
-                    midi_in->label = ctrl["label"].toString().toStdString();
+                    auto midi_in = std::make_shared<MidiTrackInfo>();
+                    midi_in->label = pyharpComponent["label"].toString().toStdString();
 
-                    m_ctrls.push_back({ midi_in->id, midi_in });
+                    inputTracksInfo.push_back({ midi_in->id, midi_in });
                     LogAndDBG("MIDI In: " + midi_in->label + " added");
                 }
                 // The rest are the actual controls that map to hyperparameters
                 // of the model
-                else if (ctrl_type == "slider")
+                else if (type == "slider")
                 {
-                    auto slider = std::make_shared<SliderCtrl>();
+                    auto slider = std::make_shared<SliderInfo>();
                     slider->id = juce::Uuid();
-                    slider->label = ctrl["label"].toString().toStdString();
-                    slider->minimum = ctrl["minimum"].toString().getFloatValue();
-                    slider->maximum = ctrl["maximum"].toString().getFloatValue();
-                    slider->step = ctrl["step"].toString().getFloatValue();
-                    slider->value = ctrl["value"].toString().getFloatValue();
+                    slider->label = pyharpComponent["label"].toString().toStdString();
+                    slider->minimum = pyharpComponent["minimum"].toString().getFloatValue();
+                    slider->maximum = pyharpComponent["maximum"].toString().getFloatValue();
+                    slider->step = pyharpComponent["step"].toString().getFloatValue();
+                    slider->value = pyharpComponent["value"].toString().getFloatValue();
 
-                    m_ctrls.push_back({ slider->id, slider });
+                    controlsInfo.push_back({ slider->id, slider });
                     LogAndDBG("Slider: " + slider->label + " added");
                 }
-                else if (ctrl_type == "text")
+                else if (type == "text_box")
                 {
-                    auto text = std::make_shared<TextBoxCtrl>();
+                    auto text = std::make_shared<TextBoxInfo>();
                     text->id = juce::Uuid();
-                    text->label = ctrl["label"].toString().toStdString();
-                    text->value = ctrl["value"].toString().toStdString();
+                    text->label = pyharpComponent["label"].toString().toStdString();
+                    text->value = pyharpComponent["value"].toString().toStdString();
 
-                    m_ctrls.push_back({ text->id, text });
+                    controlsInfo.push_back({ text->id, text });
                     LogAndDBG("Text: " + text->label + " added");
                 }
-                else if (ctrl_type == "number_box")
+                else if (type == "number_box")
                 {
-                    auto number_box = std::make_shared<NumberBoxCtrl>();
-                    number_box->label = ctrl["label"].toString().toStdString();
-                    number_box->min = ctrl["min"].toString().getFloatValue();
-                    number_box->max = ctrl["max"].toString().getFloatValue();
-                    number_box->value = ctrl["value"].toString().getFloatValue();
+                    auto number_box = std::make_shared<NumberBoxInfo>();
+                    number_box->id = juce::Uuid();
+                    number_box->label = pyharpComponent["label"].toString().toStdString();
+                    number_box->min = pyharpComponent["min"].toString().getFloatValue();
+                    number_box->max = pyharpComponent["max"].toString().getFloatValue();
+                    number_box->value = pyharpComponent["value"].toString().getFloatValue();
 
-                    m_ctrls.push_back({ number_box->id, number_box });
+                    controlsInfo.push_back({ number_box->id, number_box });
                     LogAndDBG("Number Box: " + number_box->label + " added");
                 }
+                else if (type == "toggle")
+                {
+                    auto toggle = std::make_shared<ToggleInfo>();
+                    toggle->id = juce::Uuid();
+                    toggle->label = pyharpComponent["label"].toString().toStdString();
+                    toggle->value = ("1"  == pyharpComponent["value"].toString().toStdString());
+                    // toggle->value = (aa == "1");
+                    controlsInfo.push_back({ toggle->id, toggle });
+                    LogAndDBG("Toggle: " + toggle->label + " added");
+                }
                 else
-                    LogAndDBG("failed to parse control with unknown type: " + ctrl_type);
+                    LogAndDBG("failed to parse control with unknown type: " + type);
+            }
+            catch (const char* e)
+            {
+                status2 = ModelStatus::ERROR;
+                error.devMessage = "Failed to load controls from JSON. " + std::string(e);
+                return OpResult::fail(error);
+            }
+        }
+
+        // same for the output pyharp components
+        for (int i = 0; i < outputPyharpComponents.size(); i++)
+        {
+            juce::var pyharpComponent = outputPyharpComponents.getReference(i);
+            if (! pyharpComponent.isObject())
+            {
+                status2 = ModelStatus::ERROR;
+                error.devMessage = "Failed to load controls from JSON. ctrl is not an object.";
+                return OpResult::fail(error);
+            }
+
+            try
+            {
+                // get the ctrl type
+                juce::String type = pyharpComponent["type"].toString().toStdString();
+
+                // For the first two, we are abusing the term control.
+                // They are actually the main inputs to the model (audio or midi)
+                if (type == "audio_track")
+                {
+                    // CB:TODO: NOT USED ANYWHERE
+                    // ControlAreaWidget.h ignores this when populating the GUI
+                    auto audio_out = std::make_shared<AudioTrackInfo>();
+                    audio_out->label = pyharpComponent["label"].toString().toStdString();
+
+                    outputTracksInfo.push_back({ audio_out->id, audio_out });
+                    LogAndDBG("Audio Out: " + audio_out->label + " added");
+                }
+                else if (type == "midi_track")
+                {
+                    auto midi_out = std::make_shared<MidiTrackInfo>();
+                    midi_out->label = pyharpComponent["label"].toString().toStdString();
+
+                    outputTracksInfo.push_back({ midi_out->id, midi_out });
+                    LogAndDBG("MIDI Out: " + midi_out->label + " added");
+                }
             }
             catch (const char* e)
             {
@@ -177,7 +246,9 @@ public:
         return OpResult::ok();
     }
 
-    OpResult process(juce::File filetoProcess)
+    // TODO: Shouldn't take a file for input. It should just visit
+    // all media displays and controls and get their values.
+    OpResult process(juce::File filetoProcess, juce::File outputFile)
     {
         status2 = ModelStatus::STARTING;
         // Create an Error object in case we need it
@@ -187,6 +258,7 @@ public:
         OpResult result = OpResult::ok();
 
         status2 = ModelStatus::SENDING;
+        // TODO: I should upload all inputMediaDisplays files first
         juce::String uploadedFilePath;
         result = gradioClient.uploadFileRequest(filetoProcess, uploadedFilePath);
         if (result.failed())
@@ -224,8 +296,7 @@ public:
         }
 
         juce::String response;
-        result =
-            gradioClient.getResponseFromEventID(endpoint, eventId, response, 14000);
+        result = gradioClient.getResponseFromEventID(endpoint, eventId, response, 14000);
         if (result.failed())
         {
             status2 = ModelStatus::ERROR;
@@ -272,12 +343,31 @@ public:
                 status2 = ModelStatus::ERROR;
                 error.devMessage =
                     "The " + juce::String(i)
-                    + "th element of the array of processed outputs we received from the gradio app is not an object.";
+                    + "th returned element of the process_fn function in the gradio-app is not an object.";
                 return OpResult::fail(error);
             }
             // Make sure the object has a "meta" key
-            // Gradio output compoenents like File and Audio store metadata in the "meta" key
+            // Gradio output components like File and Audio store metadata in the "meta" key
             // so we can use that to identify what kind of output it is
+            if (! procObj.getDynamicObject())
+            {
+                status2 = ModelStatus::ERROR;
+                error.devMessage =
+                    "The " + juce::String(i)
+                    + "th returned element of the process_fn function in the gradio-app is not a valid object. "
+                    + "Make sure you are using LabelList() and not just a python list, in process_fn, to return the output labels.";
+                return OpResult::fail(error);
+            }
+            if (! procObj.getDynamicObject()->hasProperty("meta"))
+            {
+                status2 = ModelStatus::ERROR;
+                error.type = ErrorType::MissingJsonKey;
+                error.devMessage =
+                    "The " + juce::String(i)
+                    + "th element of the array of processed outputs does not have a meta object. "
+                    + "Make sure you are using LabelList() in process_fn to return the output labels.";
+                return OpResult::fail(error);
+            }
             juce::var meta = procObj.getDynamicObject()->getProperty("meta");
             // meta should be an object
             if (! meta.isObject())
@@ -286,7 +376,7 @@ public:
                 error.type = ErrorType::MissingJsonKey;
                 error.devMessage =
                     "The " + juce::String(i)
-                    + "th element of the array of processed outputs does not have a meta object.";
+                    + "th element of the array of processed outputs does not have a valid meta object.";
                 return OpResult::fail(error);
             }
             juce::String procObjType = meta.getDynamicObject()->getProperty("_type").toString();
@@ -325,7 +415,8 @@ public:
                 // Make a juce::File from the path
                 juce::File processedFile(outputFilePath);
                 // Replace the input file with the processed file
-                processedFile.moveFileTo(filetoProcess);
+                // processedFile.moveFileTo(filetoProcess);
+                processedFile.moveFileTo(outputFile);
             }
             else if (procObjType == "pyharp.LabelList")
             {
@@ -505,11 +596,11 @@ public:
     ModelStatus getLastStatus() { return lastStatus; }
     void setLastStatus(ModelStatus status) { lastStatus = status; }
 
-    CtrlList::iterator findCtrlByUuid(const juce::Uuid& uuid)
+    ComponentInfoList::iterator findComponentInfoByUuid(const juce::Uuid& uuid)
     {
-        return std::find_if(m_ctrls.begin(),
-                            m_ctrls.end(),
-                            [&uuid](const CtrlList::value_type& pair)
+        return std::find_if(controlsInfo.begin(),
+                            controlsInfo.end(),
+                            [&uuid](const ComponentInfoList::value_type& pair)
                             { return pair.first == uuid; });
     }
 
@@ -523,37 +614,37 @@ private:
         // Create a JSON array to hold each control's value
         juce::Array<juce::var> jsonCtrlsArray;
 
-        // Iterate through each control in m_ctrls
-        for (const auto& ctrlPair : m_ctrls)
+        // Iterate through each control in controlsInfo
+        for (const auto& ctrlPair : controlsInfo)
         {
             auto ctrl = ctrlPair.second;
             // Check the type of ctrl and extract its value
-            if (auto sliderCtrl = dynamic_cast<SliderCtrl*>(ctrl.get()))
+            if (auto sliderCtrl = dynamic_cast<SliderInfo*>(ctrl.get()))
             {
                 // Slider control, use sliderCtrl->value
                 jsonCtrlsArray.add(juce::var(sliderCtrl->value));
             }
-            else if (auto textBoxCtrl = dynamic_cast<TextBoxCtrl*>(ctrl.get()))
+            else if (auto textBoxCtrl = dynamic_cast<TextBoxInfo*>(ctrl.get()))
             {
                 // Text box control, use textBoxCtrl->value
                 jsonCtrlsArray.add(juce::var(textBoxCtrl->value));
             }
-            else if (auto numberBoxCtrl = dynamic_cast<NumberBoxCtrl*>(ctrl.get()))
+            else if (auto numberBoxCtrl = dynamic_cast<NumberBoxInfo*>(ctrl.get()))
             {
                 // Number box control, use numberBoxCtrl->value
                 jsonCtrlsArray.add(juce::var(numberBoxCtrl->value));
             }
-            else if (auto toggleCtrl = dynamic_cast<ToggleCtrl*>(ctrl.get()))
+            else if (auto toggleCtrl = dynamic_cast<ToggleInfo*>(ctrl.get()))
             {
                 // Toggle control, use toggleCtrl->value
                 jsonCtrlsArray.add(juce::var(toggleCtrl->value));
             }
-            else if (auto comboBoxCtrl = dynamic_cast<ComboBoxCtrl*>(ctrl.get()))
+            else if (auto comboBoxCtrl = dynamic_cast<ComboBoxInfo*>(ctrl.get()))
             {
                 // Combo box control, use comboBoxCtrl->value
                 jsonCtrlsArray.add(juce::var(comboBoxCtrl->value));
             }
-            else if (auto audioInCtrl = dynamic_cast<AudioInCtrl*>(ctrl.get()))
+            else if (auto audioInCtrl = dynamic_cast<AudioTrackInfo*>(ctrl.get()))
             {
                 // Audio in control, use audioInCtrl->value
                 audioInCtrl->value = mediaInputPath;
@@ -568,7 +659,7 @@ private:
                 // Then we add the object to the array
                 jsonCtrlsArray.add(juce::var(obj));
             }
-            else if (auto midiInCtrl = dynamic_cast<MidiInCtrl*>(ctrl.get()))
+            else if (auto midiInCtrl = dynamic_cast<MidiTrackInfo*>(ctrl.get()))
             {
                 midiInCtrl->value = mediaInputPath;
                 // same as audioInCtrl
@@ -593,7 +684,11 @@ private:
         return OpResult::ok();
     }
 
-    CtrlList m_ctrls;
+    ComponentInfoList controlsInfo;
+    ComponentInfoList inputTracksInfo;
+    ComponentInfoList outputTracksInfo;
+    // juce::Array<juce::var> inputComponents;
+    // juce::Array<juce::var> outputComponents;
     GradioClient gradioClient;
 
     // A helper variable to store the status of the model

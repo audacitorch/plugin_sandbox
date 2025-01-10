@@ -1,6 +1,12 @@
 #include "MediaDisplayComponent.h"
 
 MediaDisplayComponent::MediaDisplayComponent()
+    : MediaDisplayComponent("Media Track")
+{
+}
+
+MediaDisplayComponent::MediaDisplayComponent(String trackName)
+    : trackName(trackName)
 {
     resetPaths();
 
@@ -17,6 +23,15 @@ MediaDisplayComponent::MediaDisplayComponent()
 
     currentPositionMarker.setFill(Colours::white.withAlpha(0.85f));
     addAndMakeVisible(currentPositionMarker);
+
+
+    trackNameLabel.setText(trackName, juce::dontSendNotification);
+    addAndMakeVisible(headerComponent);
+    addAndMakeVisible(mediaComponent);
+
+    // Add controls to headerComponent
+    headerComponent.addAndMakeVisible(trackNameLabel);
+    populateTrackHeader();
 }
 
 MediaDisplayComponent::~MediaDisplayComponent()
@@ -44,21 +59,68 @@ void MediaDisplayComponent::paint(Graphics& g)
 
 void MediaDisplayComponent::resized()
 {
-    repositionContent();
+    auto totalBounds = getLocalBounds();
+
+    // Build trackRowBox items
+    mainFlexBox.items.clear();
+    mainFlexBox.items.add(juce::FlexItem(headerComponent).withFlex(1).withMaxWidth(40).withMargin(4)); 
+     // Media area takes remaining space
+    mainFlexBox.items.add(juce::FlexItem(mediaComponent).withFlex(8));     
+
+    mainFlexBox.performLayout(totalBounds);
+
+    // Set up headerFlexBox for the controls inside headerComponent
+    headerFlexBox.flexDirection = juce::FlexBox::Direction::row;
+    headerFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+    headerFlexBox.alignItems = juce::FlexBox::AlignItems::stretch;
+
+    juce::FlexBox buttonsFlexBox;
+    buttonsFlexBox.flexDirection = juce::FlexBox::Direction::column;
+    buttonsFlexBox.justifyContent = juce::FlexBox::JustifyContent::center;
+    buttonsFlexBox.alignItems = juce::FlexBox::AlignItems::stretch;
+    buttonsFlexBox.items.add(juce::FlexItem(playStopButton).withHeight(30));
+    buttonsFlexBox.items.add(juce::FlexItem(chooseFileButton).withHeight(30));
+    buttonsFlexBox.items.add(juce::FlexItem(saveFileButton).withHeight(30));
+
+    headerFlexBox.items.clear();
+    headerFlexBox.items.add(juce::FlexItem(trackNameLabel).withFlex(1));
+    headerFlexBox.items.add(juce::FlexItem(buttonsFlexBox).withFlex(1));
+
+    // Perform layout of controls inside headerComponent
+    headerFlexBox.performLayout(headerComponent.getLocalBounds());
+
+    // After layout, adjust the trackNameLabel
+    auto labelBounds = trackNameLabel.getBounds().toFloat();
+    auto labelCentre = labelBounds.getCentre();
+
+    // Apply rotation
+    trackNameLabel.setTransform(juce::AffineTransform::rotation(-juce::MathConstants<float>::halfPi,
+                                                               labelCentre.x, labelCentre.y));
+
+    // Swap width and height
+    int newWidth = labelBounds.getHeight();
+    int newHeight = labelBounds.getWidth();
+
+    // Update label bounds and position
+    trackNameLabel.setBounds(labelBounds.withSize(newWidth, newHeight).toNearestInt());
+
+    // Reposition the label to center it within headerComponent
+    auto headerBounds = headerComponent.getLocalBounds();
+    int labelX = (headerBounds.getWidth() - newWidth) / 2;
+    int labelY = (headerBounds.getHeight() - newHeight) / 2;
+    trackNameLabel.setTopLeftPosition(labelX, labelY);
+
+    // Set text justification to centered
+    trackNameLabel.setJustificationType(juce::Justification::centred);
+    
     repositionScrollBar();
     repositionLabels();
 }
 
-Rectangle<int> MediaDisplayComponent::getContentBounds()
-{
-    return getLocalBounds()
-        .removeFromTop(getHeight() - (scrollBarSize + 2 * controlSpacing))
-        .reduced(controlSpacing);
-}
 
 void MediaDisplayComponent::repositionScrollBar()
 {
-    horizontalScrollBar.setBounds(getLocalBounds()
+    horizontalScrollBar.setBounds(mediaComponent.getBounds()
                                       .removeFromBottom(scrollBarSize + 2 * controlSpacing)
                                       .reduced(controlSpacing));
 }
@@ -83,7 +145,8 @@ void MediaDisplayComponent::repositionLabelOverlays()
     float minLabelWidth = 0.1 * getMediaWidth();
     float maxLabelWidth = 0.10 * pixelsPerSecond;
 
-    float contentWidth = getContentBounds().getWidth();
+    //cb:TODO: check if mediaComponent.getBounds() is correct
+    float contentWidth = mediaComponent.getBounds().getWidth();
     float minVisibilityWidth = contentWidth / 200.0f;
     float maxVisibilityWidth = contentWidth / 3.0f;
 
@@ -128,13 +191,14 @@ void MediaDisplayComponent::resetMedia()
     resetPaths();
     clearLabels();
     resetDisplay();
-    sendChangeMessage();
+    sendChangeMessage(); // cb: what's the point of this ? 
 
     currentHorizontalZoomFactor = 1.0;
     horizontalScrollBar.setRangeLimits({ 0.0, 1.0 });
     horizontalScrollBar.setVisible(false);
 }
 
+// the function we need to call when we want to load a media file
 void MediaDisplayComponent::setupDisplay(const URL& filePath)
 {
     resetMedia();
@@ -165,8 +229,14 @@ void MediaDisplayComponent::addNewTempFile()
     clearFutureTempFiles();
 
     int numTempFiles = tempFilePaths.size();
-
-    File originalFile = targetFilePath.getLocalFile();
+    // TODO: for outputMediaDisplays there might not be a
+    // targetFilePath yet, so we should handle that case
+    // "originalFile" is the first file that was displayed 
+    // in this mediaDisplay (either the first input)
+    // or the first output)
+    File originalFile;
+    if (targetFilePath.isLocalFile())
+        originalFile = targetFilePath.getLocalFile();        
 
     File targetFile;
 
@@ -292,7 +362,62 @@ void MediaDisplayComponent::filesDropped(const StringArray& files, int /*x*/, in
     // TODO - warning or handling for additional files
 
     droppedFilePath = URL(File(files[0]));
-    sendChangeMessage();
+    auto mediaFile = droppedFilePath.getLocalFile();
+    // sendChangeMessage();
+    // loadMediaFile(droppedFilePath);
+    String extension = mediaFile.getFileExtension();
+
+    bool matchingDisplay = getInstanceExtensions().contains(extension);
+
+    if (! matchingDisplay)
+    {
+        AlertWindow::showMessageBoxAsync(
+            AlertWindow::WarningIcon, "Wrong file extension", "Please drop one of the following file types: " + getInstanceExtensions().joinIntoString(", "), "OK");
+    }
+    else
+    {
+        setupDisplay(URL(mediaFile));
+        saveFileButton.setMode(saveButtonActiveInfo.label);
+    }
+    droppedFilePath = URL();
+}
+
+void MediaDisplayComponent::openFileChooser()
+{
+    StringArray allExtensions = StringArray(getInstanceExtensions());
+    // allExtensions.mergeArray(midiExtensions);
+
+    String filePatternsAllowed = "*" + allExtensions.joinIntoString(";*");
+
+    openFileBrowser =
+        std::make_unique<FileChooser>("Select a media file...", File(), filePatternsAllowed);
+
+    openFileBrowser->launchAsync(FileBrowserComponent::openMode
+                                        | FileBrowserComponent::canSelectFiles,
+                                    [this](const FileChooser& browser)
+                                    {
+                                        File chosenFile = browser.getResult();
+                                        if (chosenFile != File {})
+                                        {
+                                            setupDisplay(URL(chosenFile));
+                                            saveFileButton.setMode(saveButtonActiveInfo.label);
+                                        }
+                                    });
+}
+
+void MediaDisplayComponent::saveCallback()
+{
+    if (saveFileButton.getModeName() == saveButtonActiveInfo.label)
+    {
+        overwriteTarget();
+        // saveFileButton.setEnabled(false);
+        saveFileButton.setMode(saveButtonInactiveInfo.label);
+        statusBox->setStatusMessage("File saved successfully");
+    }
+    else
+    {
+        statusBox->setStatusMessage("Nothing to save");
+    }
 }
 
 void MediaDisplayComponent::mouseDrag(const MouseEvent& e)
@@ -354,6 +479,8 @@ void MediaDisplayComponent::start()
     startPlaying();
 
     startTimerHz(40);
+
+    playStopButton.setMode(stopButtonInfo.label);
 }
 
 void MediaDisplayComponent::stop()
@@ -364,6 +491,8 @@ void MediaDisplayComponent::stop()
 
     currentPositionMarker.setVisible(false);
     setPlaybackPosition(0.0);
+
+    playStopButton.setMode(playButtonInfo.label);
 }
 
 float MediaDisplayComponent::getPixelsPerSecond()
@@ -565,6 +694,67 @@ void MediaDisplayComponent::horizontalZoom(float deltaZoom, float scrollPosX)
     updateVisibleRange({ newStart, newEnd });
 }
 
+void MediaDisplayComponent::populateTrackHeader()
+{
+    playButtonInfo = MultiButton::Mode {
+        "Play",
+        [this] { start(); },
+        juce::Colours::limegreen,
+        "Click to start playback",
+        MultiButton::DrawingMode::IconOnly,
+        fontaudio::Play,
+    };
+    stopButtonInfo = MultiButton::Mode {
+        "Stop",
+        [this] { stop(); },
+        Colours::orangered,
+        "Click to stop playback",
+        MultiButton::DrawingMode::IconOnly,
+        fontaudio::Stop,
+    };
+    playStopButton.addMode(playButtonInfo);
+    playStopButton.addMode(stopButtonInfo);
+    playStopButton.setMode(playButtonInfo.label);
+    playStopButton.setEnabled(true);
+    headerComponent.addAndMakeVisible(playStopButton);
+
+    chooseButtonInfo = MultiButton::Mode {
+        "Choose",
+        [this] { openFileChooser(); }, // chooseFile();
+        juce::Colours::lightblue,
+        "Click to choose a media file",
+        MultiButton::DrawingMode::IconOnly,
+        fontawesome::Folder,
+    };
+    chooseFileButton.addMode(chooseButtonInfo);
+    chooseFileButton.setMode(chooseButtonInfo.label);
+    headerComponent.addAndMakeVisible(chooseFileButton);
+
+    saveButtonActiveInfo = MultiButton::Mode {
+        "Save1",
+        [this] { saveCallback(); }, // saveFile();
+        juce::Colours::lightblue,
+        "Click to save the media file",
+        MultiButton::DrawingMode::IconOnly,
+        fontawesome::Save,
+    };
+    // We can use a separate mode for the save button
+    // to be used when there is nothing to save
+    saveButtonInactiveInfo = MultiButton::Mode {
+        "Save2", // mode labels need to be unique for the button
+        [this] { saveCallback(); }, // saveFile();
+        juce::Colours::lightgrey,
+        "Nothing to save",
+        MultiButton::DrawingMode::IconOnly,
+        fontawesome::Save,
+    };
+    saveFileButton.addMode(saveButtonActiveInfo);
+    saveFileButton.addMode(saveButtonInactiveInfo);
+    saveFileButton.setMode(saveButtonInactiveInfo.label);
+    headerComponent.addAndMakeVisible(saveFileButton);
+
+}
+
 void MediaDisplayComponent::resetPaths()
 {
     clearDroppedFile();
@@ -583,7 +773,7 @@ void MediaDisplayComponent::updateCursorPosition()
 
     float cursorPositionX = mediaXToDisplayX(timeToMediaX(getPlaybackPosition()));
 
-    Rectangle<int> mediaBounds = getContentBounds();
+    Rectangle<int> mediaBounds = mediaComponent.getLocalBounds();
 
     float cursorBoundsStartX = mediaBounds.getX() + getMediaXPos();
     float cursorBoundsWidth = visibleRange.getLength() * getPixelsPerSecond();
@@ -600,6 +790,7 @@ void MediaDisplayComponent::updateCursorPosition()
     }
 
     cursorPositionX -= cursorWidth / 2.0f;
+    cursorPositionX += mediaComponent.getBounds().getX();
 
     currentPositionMarker.setRectangle(Rectangle<float>(
         cursorPositionX, mediaBounds.getY(), cursorWidth, mediaBounds.getHeight()));

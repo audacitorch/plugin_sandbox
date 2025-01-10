@@ -6,6 +6,8 @@
 
 #include "../utils.h"
 #include "OutputLabelComponent.h"
+#include "../gui/MultiButton.h"
+
 
 using namespace juce;
 
@@ -18,6 +20,7 @@ class MediaDisplayComponent : public Component,
 {
 public:
     MediaDisplayComponent();
+    MediaDisplayComponent(String trackName);
     ~MediaDisplayComponent();
 
     virtual StringArray getInstanceExtensions() = 0;
@@ -25,11 +28,13 @@ public:
     void paint(Graphics& g) override;
     virtual void resized() override;
     Rectangle<int> getContentBounds();
-    virtual void repositionContent() {};
+    // virtual void repositionContent() {};
     virtual void repositionScrollBar();
 
     virtual Component* getMediaComponent() { return this; }
     virtual float getMediaXPos() { return 0.0f; }
+
+    String getTrackName() { return trackName; }
     float getMediaHeight() { return getMediaComponent()->getHeight(); }
     float getMediaWidth() { return getMediaComponent()->getWidth(); }
 
@@ -69,6 +74,14 @@ public:
 
     bool isFileDropped() { return ! droppedFilePath.isEmpty(); }
 
+    void openFileChooser();
+
+    // Callback for the save button
+    void saveCallback();
+
+    bool displaysInput() {return ioMode == 0;}
+    bool displaysOutput() {return ioMode == 1;}
+    
     void clearDroppedFile() { droppedFilePath = URL(); }
 
     virtual void setPlaybackPosition(double t) { transportSource.setPosition(t); }
@@ -129,7 +142,35 @@ protected:
     AudioSourcePlayer sourcePlayer;
     AudioTransportSource transportSource;
 
+    std::unique_ptr<FileChooser> openFileBrowser;
+    std::unique_ptr<FileChooser> saveFileBrowser;
+
+    juce::SharedResourcePointer<InstructionBox> instructionBox;
+    juce::SharedResourcePointer<StatusBox> statusBox;
+
+    juce::FlexBox mainFlexBox;
+    juce::FlexBox headerFlexBox;
+    juce::FlexBox mediaFlexBox;
+    // Track sub-components
+    // Left panel containing track name and buttons
+    juce::Component headerComponent;
+    // Media (audio or MIDI) content area
+    juce::Component mediaComponent;  
+    // Header sub-components
+    juce::Label trackNameLabel;
+    MultiButton playStopButton;
+    MultiButton::Mode playButtonInfo;
+    MultiButton::Mode stopButtonInfo;
+    MultiButton chooseFileButton;
+    MultiButton::Mode chooseButtonInfo;
+    MultiButton saveFileButton;
+    MultiButton::Mode saveButtonActiveInfo;
+    MultiButton::Mode saveButtonInactiveInfo;
+
 private:
+
+    void populateTrackHeader();
+
     void resetPaths();
 
     virtual void resetDisplay() = 0;
@@ -159,6 +200,10 @@ private:
     const int minFontSize = 10;
     const int labelHeight = 20;
 
+    bool ioMode = 0; // 0 input, 1 output
+
     Array<LabelOverlayComponent*> labelOverlays;
     Array<OverheadLabelComponent*> oveheadLabels;
+
+    juce::String trackName;
 };

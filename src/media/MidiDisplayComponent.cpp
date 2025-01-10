@@ -1,6 +1,12 @@
 #include "MidiDisplayComponent.h"
 
 MidiDisplayComponent::MidiDisplayComponent()
+    : MediaDisplayComponent("Midi Track")
+{
+}
+
+MidiDisplayComponent::MidiDisplayComponent(String trackName)
+    : MediaDisplayComponent(trackName)
 {
     pianoRoll.addMouseListener(this, true);
     pianoRoll.addChangeListener(this);
@@ -28,7 +34,7 @@ StringArray MidiDisplayComponent::getSupportedExtensions()
     return extensions;
 }
 
-void MidiDisplayComponent::repositionContent() { pianoRoll.setBounds(getContentBounds()); }
+// void MidiDisplayComponent::repositionContent() { pianoRoll.setBounds(getContentBounds()); }
 
 void MidiDisplayComponent::repositionScrollBar()
 {
@@ -194,6 +200,11 @@ void MidiDisplayComponent::addLabels(LabelList& labels)
     }
 }
 
+void MidiDisplayComponent::resized()
+{
+    MediaDisplayComponent::resized();
+    pianoRoll.setBounds(mediaComponent.getBounds());
+}
 void MidiDisplayComponent::resetDisplay()
 {
     MediaDisplayComponent::resetTransport();
